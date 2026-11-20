@@ -1,4 +1,4 @@
-import express from "express";
+import express, { json } from "express";
 import cors from "cors";
 import { connectToMongoDB } from "./db.js";
 
@@ -14,8 +14,9 @@ app.get("/", async (req, res) => {
   res.send("MentorLagbe Server is Running");
 });
 
-// ------------------ Tution data collection
-app.post("/add-tution", async (req, res) => {
+//            Tuition data collection
+// ------------------ Post tution
+app.post("/add-tuition", async (req, res) => {
   try {
     const { tuitions } = await connectToMongoDB();
     const tutionData = req.body;
@@ -27,14 +28,16 @@ app.post("/add-tution", async (req, res) => {
     });
 
     if (existingTutionPost) {
-      return res.status(409).send({
+      return res.status(409).json({
         success: false,
-        message: "This tution post is already exists!",
+        message: "This tuition post is already exists!",
       });
     }
 
     const insertTutionData = {
       ...tutionData,
+      approvalStatus: "pending",
+      isActive: true,
       createdAt: new Date(),
     };
 
@@ -45,9 +48,25 @@ app.post("/add-tution", async (req, res) => {
       insertedId: result.insertedId,
     });
   } catch (err) {
-    return res.status(500).send({
+    return res.status(500).json({
       success: false,
       message: "Failed to add tution",
+      error: err?.message,
+    });
+  }
+});
+
+// ------------------ Get tuition
+app.get("/tuition", async (req, res) => {
+  try {
+    const { tuitions } = await connectToMongoDB();
+    const result = await tuitions.find().toArray();
+
+    return res.status(200).json(result);
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch tuition!",
       error: err?.message,
     });
   }
