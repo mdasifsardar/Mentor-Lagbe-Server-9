@@ -7,7 +7,15 @@ export async function connectToMongoDB() {
   try {
     await client.connect();
     console.log("You successfully connected to MongoDB!");
-    return client;
+
+    const database = client.db("mentor-lagbe");
+    const user = database.collection("user");
+    const tuitions = database.collection("tuitions");
+
+    return {
+      user,
+      tuitions,
+    };
   } catch (err) {
     console.dir(err);
   }
