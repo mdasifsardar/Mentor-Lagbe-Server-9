@@ -1,6 +1,7 @@
 import express, { json } from "express";
 import cors from "cors";
 import { connectToMongoDB } from "./db.js";
+import { ObjectId } from "mongodb";
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -72,6 +73,7 @@ app.get("/tuition", async (req, res) => {
   }
 });
 
+// ------------------ Get tuition by tutorEmail
 app.get("/tuition/:tutorEmail", async (req, res) => {
   try {
     const { tuitions } = await connectToMongoDB();
@@ -88,6 +90,63 @@ app.get("/tuition/:tutorEmail", async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to fetch tuition!",
+      error: err?.message,
+    });
+  }
+});
+
+// ------------------ Update isActive only by :_id
+app.patch("/tuition/:id", async (req, res) => {
+  try {
+    const { tuitions } = await connectToMongoDB();
+    const { id } = req.params;
+    const { isActive } = req.body;
+
+    const result = await tuitions.updateOne(
+      {
+        _id: new ObjectId(id),
+      },
+      { $set: { isActive } },
+    );
+
+    return res.status(200).json({
+      success: true,
+      result,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update tuition!",
+      error: err?.message,
+    });
+  }
+});
+
+// ------------------ Update tuition data by :_id
+app.patch("/update-tuition/:id", async (req, res) => {
+  try {
+    const { tuitions } = await connectToMongoDB();
+    const { id } = req.params;
+
+    const { isActive, ...query } = req.body;
+    const result = await tuitions.updateOne(
+      {
+        _id: new ObjectId(id),
+      },
+      {
+        $set: query,
+      },
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Tuition updated successfully",
+      result,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update tuition!",
       error: err?.message,
     });
   }
