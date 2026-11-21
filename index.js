@@ -152,6 +152,30 @@ app.patch("/update-tuition/:id", async (req, res) => {
   }
 });
 
+// ------------------ Delete tuition data by :_id
+app.delete("/delete-tuition/:id", async (req, res) => {
+  try {
+    const { tuitions } = await connectToMongoDB();
+    const { id } = req.params;
+
+    const result = await tuitions.deleteOne({
+      _id: new ObjectId(id),
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Tuition deleted successfully!",
+      result,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to delete tuition!",
+      error: err?.message,
+    });
+  }
+});
+
 app.listen(port, () =>
   console.log(`MentorLagbe server running on port ${port}`),
 );
