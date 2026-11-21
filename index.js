@@ -72,6 +72,27 @@ app.get("/tuition", async (req, res) => {
   }
 });
 
+app.get("/tuition/:tutorEmail", async (req, res) => {
+  try {
+    const { tuitions } = await connectToMongoDB();
+    const { tutorEmail } = req.params;
+
+    const result = await tuitions
+      .find({
+        tutorEmail,
+      })
+      .toArray();
+
+    return res.status(200).json(result);
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch tuition!",
+      error: err?.message,
+    });
+  }
+});
+
 app.listen(port, () =>
   console.log(`MentorLagbe server running on port ${port}`),
 );
