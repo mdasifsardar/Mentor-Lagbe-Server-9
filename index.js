@@ -58,17 +58,88 @@ app.post("/add-tuition", async (req, res) => {
 });
 
 // ------------------ Get tuition
-app.get("/tuition", async (req, res) => {
+app.get("/tuitions", async (req, res) => {
   try {
     const { tuitions } = await connectToMongoDB();
-    const result = await tuitions.find().toArray();
 
-    return res.status(200).json(result);
-  } catch (err) {
+    const query = {
+      // approvalStatus: "approved",
+      // isActive: true,
+    };
+
+    console.log("Query =>", req.query);
+
+    if (req.query.subject) {
+      query.subject = {
+        $regex: req.query.subject,
+        $options: "i",
+      };
+    }
+
+    if (req.query.classLevel) {
+      query.classLevel = {
+        $regex: req.query.classLevel,
+        $options: "i",
+      };
+    }
+
+    if (req.query.mode) {
+      query.mode = {
+        $regex: req.query.mode,
+        $options: "i",
+      };
+    }
+
+    if (req.query.search) {
+      query.$or = [
+        { title: { $regex: req.query.search, $options: "i" } },
+        { subject: { $regex: req.query.search, $options: "i" } },
+        { tutorName: { $regex: req.query.search, $options: "i" } },
+      ];
+    }
+
+    const result = await tuitions.find(query).sort({ createdAt: -1 }).toArray();
+
+    res.status(200).json({
+      success: true,
+      tuitions: result,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch tuitions",
+    });
+  }
+});
+
+//
+app.get("/tuition/:id", async (req, res) => {
+  try {
+    const { tuitions } = await connectToMongoDB();
+    const { id } = req.params;
+
+    const tuition = await tuitions.findOne({
+      _id: new ObjectId(id),
+      // approvalStatus: "approved",
+      // isActive: true,
+    });
+
+    if (!tuition) {
+      return res.status(404).json({
+        success: false,
+        message: "Tuition not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      tuition,
+    });
+  } catch (error) {
     return res.status(500).json({
       success: false,
-      message: "Failed to fetch tuition!",
-      error: err?.message,
+      message: "Failed to fetch tuition",
+      error: error.message,
     });
   }
 });
@@ -234,6 +305,105 @@ app.get("/student-dashboard/:email", async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to fetch student dashboard",
+      error: error.message,
+    });
+  }
+});
+
+app.get("/applications/student/:email", async (req, res) => {
+  try {
+    const { applications } = await connectToMongoDB();
+
+    const email = decodeURIComponent(req.params.email);
+
+    const studentApplications = await applications
+      .find({ studentEmail: email })
+      .sort({ appliedAt: -1 })
+      .toArray();
+
+    return res.status(200).json({
+      success: true,
+      applications: studentApplications,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch student applications",
+      error: error.message,
+    });
+  }
+});
+
+// ------------------ Apply for tuition
+app.post("/applications", async (req, res) => {
+  try {
+    const { applications, tuitions } = await connectToMongoDB();
+
+    const {
+      tuitionId,
+      studentEmail,
+      studentName,
+      studentPhone,
+      preferredSchedule,
+      studentNote,
+    } = req.body;
+
+    if (!ObjectId.isValid(tuitionId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid tuition ID",
+      });
+    }
+
+    const tuition = await tuitions.findOne({
+      _id: new ObjectId(tuitionId),
+      approvalStatus: "approved",
+      isActive: true,
+    });
+
+    if (!tuition) {
+      return res.status(404).json({
+        success: false,
+        message: "Tuition not available",
+      });
+    }
+
+    const existingApplication = await applications.findOne({
+      tuitionId,
+      studentEmail,
+    });
+
+    if (existingApplication) {
+      return res.status(409).json({
+        success: false,
+        message: "You have already applied for this tuition.",
+      });
+    }
+
+    const result = await applications.insertOne({
+      tuitionId,
+      tuitionTitle: tuition.title,
+      subject: tuition.subject,
+      monthlyFee: tuition.monthlyFee,
+      tutorEmail: tuition.tutorEmail,
+      studentName,
+      studentEmail,
+      studentPhone,
+      preferredSchedule,
+      studentNote,
+      status: "pending",
+      appliedAt: new Date(),
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Application submitted successfully!",
+      insertedId: result.insertedId,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to submit application",
       error: error.message,
     });
   }
