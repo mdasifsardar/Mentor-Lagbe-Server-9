@@ -9,14 +9,16 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+// ------------------ Server health check
 app.get("/", async (req, res) => {
   await connectToMongoDB();
 
   res.send("MentorLagbe Server is Running");
 });
 
-//            Tuition data collection
-// ------------------ Post tution
+// ------------------ Tuition data collection
+
+// ------------------ Add tuition
 app.post("/add-tuition", async (req, res) => {
   try {
     const { tuitions } = await connectToMongoDB();
@@ -57,14 +59,14 @@ app.post("/add-tuition", async (req, res) => {
   }
 });
 
-// ------------------ Get tuition
+// ------------------ Get all tuition with filters
 app.get("/tuitions", async (req, res) => {
   try {
     const { tuitions } = await connectToMongoDB();
 
     const query = {
-      // approvalStatus: "approved",
-      // isActive: true,
+      approvalStatus: "approved",
+      isActive: true,
     };
 
     console.log("Query =>", req.query);
@@ -112,22 +114,16 @@ app.get("/tuitions", async (req, res) => {
   }
 });
 
-//
+// ------------------ Get tuition by ID
 app.get("/tuition/:id", async (req, res) => {
   try {
     const { tuitions } = await connectToMongoDB();
     const { id } = req.params;
 
-    // Not an ObjectId (e.g. a tutor email address) => list by tutorEmail.
-    if (!ObjectId.isValid(id)) {
-      const tutorTuitions = await tuitions.find({ tutorEmail: id }).toArray();
-      return res.status(200).json(tutorTuitions);
-    }
-
     const tuition = await tuitions.findOne({
       _id: new ObjectId(id),
-      // approvalStatus: "approved",
-      // isActive: true,
+      approvalStatus: "approved",
+      isActive: true,
     });
 
     if (!tuition) {
@@ -150,7 +146,7 @@ app.get("/tuition/:id", async (req, res) => {
   }
 });
 
-// ------------------ Get tuition by tutorEmail
+// ------------------ Get tuition by tutor email
 app.get("/tuition/:tutorEmail", async (req, res) => {
   try {
     const { tuitions } = await connectToMongoDB();
@@ -172,7 +168,7 @@ app.get("/tuition/:tutorEmail", async (req, res) => {
   }
 });
 
-// ------------------ Update isActive only by :_id
+// ------------------ Update tuition active status by ID
 app.patch("/tuition/:id", async (req, res) => {
   try {
     const { tuitions } = await connectToMongoDB();
@@ -199,7 +195,7 @@ app.patch("/tuition/:id", async (req, res) => {
   }
 });
 
-// ------------------ Update tuition data by :_id
+// ------------------ Update tuition data by ID
 app.patch("/update-tuition/:id", async (req, res) => {
   try {
     const { tuitions } = await connectToMongoDB();
@@ -229,7 +225,7 @@ app.patch("/update-tuition/:id", async (req, res) => {
   }
 });
 
-// ------------------ Delete tuition data by :_id
+// ------------------ Delete tuition by ID
 app.delete("/delete-tuition/:id", async (req, res) => {
   try {
     const { tuitions } = await connectToMongoDB();
@@ -253,7 +249,7 @@ app.delete("/delete-tuition/:id", async (req, res) => {
   }
 });
 
-// ------------------ Get student dashboard data by :_email
+// ------------------ Get student dashboard data by email
 app.get("/student-dashboard/:email", async (req, res) => {
   try {
     const { user, applications } = await connectToMongoDB();
@@ -270,6 +266,7 @@ app.get("/student-dashboard/:email", async (req, res) => {
       });
     }
 
+    // Check student role
     if (!student || student.role !== "student") {
       return res.status(403).json({
         success: false,
@@ -283,7 +280,7 @@ app.get("/student-dashboard/:email", async (req, res) => {
       .sort({ appliedAt: -1 })
       .toArray();
 
-    // Calculate statistics
+    // Calculate application statistics
     const totalApplied = studentApplications.length;
 
     const acceptedApplications = studentApplications.filter(
@@ -294,7 +291,7 @@ app.get("/student-dashboard/:email", async (req, res) => {
       (item) => item.status === "pending",
     ).length;
 
-    // Latest 5 applications
+    // Get latest 5 applications
     const recentApplications = studentApplications.slice(0, 5);
 
     return res.status(200).json({
@@ -316,6 +313,7 @@ app.get("/student-dashboard/:email", async (req, res) => {
   }
 });
 
+// ------------------ Get student applications by email
 app.get("/applications/student/:email", async (req, res) => {
   try {
     const { applications } = await connectToMongoDB();
@@ -340,6 +338,31 @@ app.get("/applications/student/:email", async (req, res) => {
   }
 });
 
+// ------------------ Get tutor applicants (public)
+app.get("/applications/tutor/:email", async (req, res) => {
+  try {
+    const { applications } = await connectToMongoDB();
+
+    const email = decodeURIComponent(req.params.email);
+
+    const tutorApplications = await applications
+      .find({ tutorEmail: email })
+      .sort({ appliedAt: -1 })
+      .toArray();
+
+    return res.status(200).json({
+      success: true,
+      applications: tutorApplications,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch tutor applications",
+      error: error.message,
+    });
+  }
+});
+
 // ------------------ Apply for tuition
 app.post("/applications", async (req, res) => {
   try {
@@ -354,6 +377,7 @@ app.post("/applications", async (req, res) => {
       studentNote,
     } = req.body;
 
+    // Validate tuition ID
     if (!ObjectId.isValid(tuitionId)) {
       return res.status(400).json({
         success: false,
@@ -361,6 +385,7 @@ app.post("/applications", async (req, res) => {
       });
     }
 
+    // Check tuition availability
     const tuition = await tuitions.findOne({
       _id: new ObjectId(tuitionId),
       approvalStatus: "approved",
@@ -374,6 +399,7 @@ app.post("/applications", async (req, res) => {
       });
     }
 
+    // Check for existing application
     const existingApplication = await applications.findOne({
       tuitionId,
       studentEmail,
@@ -386,6 +412,7 @@ app.post("/applications", async (req, res) => {
       });
     }
 
+    // Create new application
     const result = await applications.insertOne({
       tuitionId,
       tuitionTitle: tuition.title,
@@ -415,8 +442,8 @@ app.post("/applications", async (req, res) => {
   }
 });
 
-//            Admin
-// ------------------ Overview statistics
+// ------------------ Admin
+// ------------------ Get overview statistics
 app.get("/admin/stats", async (req, res) => {
   try {
     const { user, tuitions, applications } = await connectToMongoDB();
@@ -461,7 +488,7 @@ app.get("/admin/stats", async (req, res) => {
   }
 });
 
-// ------------------ List users
+// ------------------ Admin users
 app.get("/admin/users", async (req, res) => {
   try {
     const { user } = await connectToMongoDB();
@@ -481,6 +508,7 @@ app.get("/admin/users", async (req, res) => {
       )
       .sort({ createdAt: -1 })
       .toArray();
+
     return res.status(200).json({ success: true, users });
   } catch (error) {
     return res.status(500).json({
@@ -494,6 +522,7 @@ app.get("/admin/users", async (req, res) => {
 // ------------------ Update user role
 app.patch("/admin/users/:id/role", async (req, res) => {
   try {
+    // Validate user ID
     if (!ObjectId.isValid(req.params.id)) {
       return res.status(400).json({
         success: false,
@@ -501,16 +530,22 @@ app.patch("/admin/users/:id/role", async (req, res) => {
       });
     }
 
+    // Validate user role
     if (!["student", "tutor", "admin"].includes(req.body.role)) {
       return res.status(400).json({ success: false, message: "Invalid role" });
     }
 
     const { user } = await connectToMongoDB();
     const target = await user.findOne({ _id: new ObjectId(req.params.id) });
+
+    // Check if user exists
     if (!target) {
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
     }
 
+    // Update user role
     await user.updateOne(
       { _id: target._id },
       { $set: { role: req.body.role } },
@@ -529,7 +564,7 @@ app.patch("/admin/users/:id/role", async (req, res) => {
   }
 });
 
-// ------------------ List tuitions (admin)
+// ------------------ Get all tuitions for admin
 app.get("/admin/tuitions", async (req, res) => {
   try {
     const { tuitions } = await connectToMongoDB();
@@ -537,6 +572,7 @@ app.get("/admin/tuitions", async (req, res) => {
       .find({})
       .sort({ createdAt: -1 })
       .toArray();
+
     return res.status(200).json({ success: true, tuitions: tuitionsList });
   } catch (error) {
     return res.status(500).json({
@@ -550,6 +586,7 @@ app.get("/admin/tuitions", async (req, res) => {
 // ------------------ Update tuition approval status
 app.patch("/admin/tuitions/:id/approval", async (req, res) => {
   try {
+    // Validate tuition ID
     if (!ObjectId.isValid(req.params.id)) {
       return res.status(400).json({
         success: false,
@@ -557,7 +594,10 @@ app.patch("/admin/tuitions/:id/approval", async (req, res) => {
       });
     }
 
-    if (!["approved", "rejected", "pending"].includes(req.body.approvalStatus)) {
+    // Validate approval status
+    if (
+      !["approved", "rejected", "pending"].includes(req.body.approvalStatus)
+    ) {
       return res.status(400).json({
         success: false,
         message: "Invalid approval status",
@@ -568,6 +608,8 @@ app.patch("/admin/tuitions/:id/approval", async (req, res) => {
     const tuition = await tuitions.findOne({
       _id: new ObjectId(req.params.id),
     });
+
+    // Check if tuition exists
     if (!tuition) {
       return res.status(404).json({
         success: false,
@@ -575,6 +617,7 @@ app.patch("/admin/tuitions/:id/approval", async (req, res) => {
       });
     }
 
+    // Update tuition approval status
     await tuitions.updateOne(
       { _id: tuition._id },
       {
@@ -598,7 +641,7 @@ app.patch("/admin/tuitions/:id/approval", async (req, res) => {
   }
 });
 
-// ------------------ Transactions
+// ------------------ Get admin transactions
 app.get("/admin/transactions", async (req, res) => {
   try {
     const { payments } = await connectToMongoDB();
@@ -606,6 +649,7 @@ app.get("/admin/transactions", async (req, res) => {
     const transactions = payments
       ? await payments.find({}).sort({ paidAt: -1 }).toArray()
       : [];
+
     const totalRevenue = transactions.reduce(
       (total, t) => total + Number(t.amount || 0),
       0,
@@ -625,6 +669,7 @@ app.get("/admin/transactions", async (req, res) => {
   }
 });
 
+// ------------------ Start server
 app.listen(port, () =>
   console.log(`MentorLagbe server running on port ${port}`),
 );
