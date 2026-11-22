@@ -118,6 +118,12 @@ app.get("/tuition/:id", async (req, res) => {
     const { tuitions } = await connectToMongoDB();
     const { id } = req.params;
 
+    // Not an ObjectId (e.g. a tutor email address) => list by tutorEmail.
+    if (!ObjectId.isValid(id)) {
+      const tutorTuitions = await tuitions.find({ tutorEmail: id }).toArray();
+      return res.status(200).json(tutorTuitions);
+    }
+
     const tuition = await tuitions.findOne({
       _id: new ObjectId(id),
       // approvalStatus: "approved",
