@@ -176,6 +176,69 @@ app.delete("/delete-tuition/:id", async (req, res) => {
   }
 });
 
+// ------------------ Get student dashboard data by :_email
+app.get("/student-dashboard/:email", async (req, res) => {
+  try {
+    const { user, applications } = await connectToMongoDB();
+
+    const email = decodeURIComponent(req.params.email);
+
+    // Get student information
+    const student = await user.findOne({ email });
+
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found",
+      });
+    }
+
+    if (!student || student.role !== "student") {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Students only.",
+      });
+    }
+
+    // Get student's applications
+    const studentApplications = await applications
+      .find({ studentEmail: email })
+      .sort({ appliedAt: -1 })
+      .toArray();
+
+    // Calculate statistics
+    const totalApplied = studentApplications.length;
+
+    const acceptedApplications = studentApplications.filter(
+      (item) => item.status === "accepted",
+    ).length;
+
+    const pendingApplications = studentApplications.filter(
+      (item) => item.status === "pending",
+    ).length;
+
+    // Latest 5 applications
+    const recentApplications = studentApplications.slice(0, 5);
+
+    return res.status(200).json({
+      success: true,
+      stats: {
+        totalApplied,
+        acceptedApplications,
+        pendingApplications,
+        currentPlan: student.plan || "free",
+      },
+      recentApplications,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch student dashboard",
+      error: error.message,
+    });
+  }
+});
+
 app.listen(port, () =>
   console.log(`MentorLagbe server running on port ${port}`),
 );
