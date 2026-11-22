@@ -409,6 +409,216 @@ app.post("/applications", async (req, res) => {
   }
 });
 
+//            Admin
+// ------------------ Overview statistics
+app.get("/admin/stats", async (req, res) => {
+  try {
+    const { user, tuitions, applications } = await connectToMongoDB();
+
+    const [
+      totalUsers,
+      totalTutors,
+      totalStudents,
+      pendingTuitions,
+      approvedTuitions,
+      totalTuitions,
+      totalApplications,
+    ] = await Promise.all([
+      user.countDocuments(),
+      user.countDocuments({ role: "tutor" }),
+      user.countDocuments({ role: "student" }),
+      tuitions.countDocuments({ approvalStatus: "pending" }),
+      tuitions.countDocuments({ approvalStatus: "approved" }),
+      tuitions.countDocuments(),
+      applications.countDocuments(),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      stats: {
+        totalUsers,
+        totalTutors,
+        totalStudents,
+        pendingTuitions,
+        approvedTuitions,
+        totalTuitions,
+        totalApplications,
+        totalRevenue: 0,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load admin statistics",
+      error: error.message,
+    });
+  }
+});
+
+// ------------------ List users
+app.get("/admin/users", async (req, res) => {
+  try {
+    const { user } = await connectToMongoDB();
+    const users = await user
+      .find(
+        {},
+        {
+          projection: {
+            name: 1,
+            email: 1,
+            role: 1,
+            plan: 1,
+            image: 1,
+            createdAt: 1,
+          },
+        },
+      )
+      .sort({ createdAt: -1 })
+      .toArray();
+    return res.status(200).json({ success: true, users });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load users",
+      error: error.message,
+    });
+  }
+});
+
+// ------------------ Update user role
+app.patch("/admin/users/:id/role", async (req, res) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user id",
+      });
+    }
+
+    if (!["student", "tutor", "admin"].includes(req.body.role)) {
+      return res.status(400).json({ success: false, message: "Invalid role" });
+    }
+
+    const { user } = await connectToMongoDB();
+    const target = await user.findOne({ _id: new ObjectId(req.params.id) });
+    if (!target) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    await user.updateOne(
+      { _id: target._id },
+      { $set: { role: req.body.role } },
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: `Role updated to ${req.body.role}`,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update user role",
+      error: error.message,
+    });
+  }
+});
+
+// ------------------ List tuitions (admin)
+app.get("/admin/tuitions", async (req, res) => {
+  try {
+    const { tuitions } = await connectToMongoDB();
+    const tuitionsList = await tuitions
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
+    return res.status(200).json({ success: true, tuitions: tuitionsList });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load tuitions",
+      error: error.message,
+    });
+  }
+});
+
+// ------------------ Update tuition approval status
+app.patch("/admin/tuitions/:id/approval", async (req, res) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid tuition id",
+      });
+    }
+
+    if (!["approved", "rejected", "pending"].includes(req.body.approvalStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid approval status",
+      });
+    }
+
+    const { tuitions } = await connectToMongoDB();
+    const tuition = await tuitions.findOne({
+      _id: new ObjectId(req.params.id),
+    });
+    if (!tuition) {
+      return res.status(404).json({
+        success: false,
+        message: "Tuition not found",
+      });
+    }
+
+    await tuitions.updateOne(
+      { _id: tuition._id },
+      {
+        $set: {
+          approvalStatus: req.body.approvalStatus,
+          updatedAt: new Date(),
+        },
+      },
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: `Tuition ${req.body.approvalStatus} successfully`,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update tuition approval",
+      error: error.message,
+    });
+  }
+});
+
+// ------------------ Transactions
+app.get("/admin/transactions", async (req, res) => {
+  try {
+    const { payments } = await connectToMongoDB();
+
+    const transactions = payments
+      ? await payments.find({}).sort({ paidAt: -1 }).toArray()
+      : [];
+    const totalRevenue = transactions.reduce(
+      (total, t) => total + Number(t.amount || 0),
+      0,
+    );
+
+    return res.status(200).json({
+      success: true,
+      transactions,
+      totalRevenue,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load transactions",
+      error: error.message,
+    });
+  }
+});
+
 app.listen(port, () =>
   console.log(`MentorLagbe server running on port ${port}`),
 );
