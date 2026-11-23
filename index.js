@@ -1,4 +1,4 @@
-import express, { json } from "express";
+import express from "express";
 import cors from "cors";
 import { connectToMongoDB } from "./db.js";
 import { ObjectId } from "mongodb";
@@ -69,8 +69,6 @@ app.get("/tuitions", async (req, res) => {
       isActive: true,
     };
 
-    console.log("Query =>", req.query);
-
     if (req.query.subject) {
       query.subject = {
         $regex: req.query.subject,
@@ -120,7 +118,6 @@ app.get("/tuition/:id", async (req, res) => {
     const { tuitions } = await connectToMongoDB();
     const { id } = req.params;
 
-    // Not an ObjectId (e.g. a tutor email address) => list by tutorEmail.
     if (!ObjectId.isValid(id)) {
       const tutorTuitions = await tuitions.find({ tutorEmail: id }).toArray();
       return res.status(200).json(tutorTuitions);
@@ -443,6 +440,51 @@ app.post("/applications", async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to submit application",
+      error: error.message,
+    });
+  }
+});
+
+// ------------------ Cancel pending application
+app.delete("/applications/:id", async (req, res) => {
+  try {
+    const { applications } = await connectToMongoDB();
+
+    const id = req.params.id;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid application id",
+      });
+    }
+
+    const application = await applications.findOne({ _id: new ObjectId(id) });
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        message: "Application not found",
+      });
+    }
+
+    if (application.status !== "pending") {
+      return res.status(400).json({
+        success: false,
+        message: "Only pending applications can be cancelled",
+      });
+    }
+
+    await applications.deleteOne({ _id: application._id });
+
+    return res.status(200).json({
+      success: true,
+      message: "Application cancelled successfully",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to cancel application",
       error: error.message,
     });
   }
