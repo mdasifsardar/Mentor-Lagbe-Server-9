@@ -424,7 +424,7 @@ app.post("/applications", async (req, res) => {
       tutorEmail: tuition.tutorEmail,
       studentName,
       studentEmail,
-      studentPhone,
+      studentPhone: Number(studentPhone),
       preferredSchedule,
       studentNote,
       status: "pending",
@@ -445,7 +445,7 @@ app.post("/applications", async (req, res) => {
   }
 });
 
-// ------------------ Cancel pending application
+// ------------------ Cancel pending application for student
 app.delete("/applications/:id", async (req, res) => {
   try {
     const { applications } = await connectToMongoDB();
@@ -485,6 +485,57 @@ app.delete("/applications/:id", async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to cancel application",
+      error: error.message,
+    });
+  }
+});
+
+// ------------------ Accept/Reject student application for tutor dashboard
+app.patch("/applications/:id", async (req, res) => {
+  try {
+    const { applications } = await connectToMongoDB();
+
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid application id",
+      });
+    }
+
+    if (!["accepted", "rejected"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid application status",
+      });
+    }
+
+    const result = await applications.updateOne(
+      { _id: new ObjectId(id) },
+      {
+        $set: {
+          status,
+        },
+      },
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Application not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Application ${status} successfully`,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update application status",
       error: error.message,
     });
   }
