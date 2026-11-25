@@ -2,7 +2,9 @@ import express from "express";
 import cors from "cors";
 import { connectToMongoDB } from "./db.js";
 import { ObjectId } from "mongodb";
+import Stripe from "stripe";
 
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const app = express();
 const port = process.env.PORT || 5000;
 
@@ -766,6 +768,67 @@ app.get("/admin/transactions", async (req, res) => {
       error: error.message,
     });
   }
+});
+
+// ------------------ Payments
+
+app.post("/payments/checkout-verify", async (req, res) => {
+  const { payments, user } = await connectToMongoDB();
+  const { sessionId } = req.body;
+
+  if (!sessionId) {
+    return res.json({
+      success: false,
+      message: "Session id is required!",
+    });
+  }
+
+  const { status, customer_email, metadata, payment_intent, payment_status } =
+    await stripe.checkout.sessions.retrieve(sessionId);
+
+  //      Payment check
+  if (status === "complete" && payment_status === "paid") {
+    const sessionQuery = { sessionId };
+    const existingPayment = await payments.findOne(sessionQuery);
+
+    if (existingPayment) {
+      return res.json({ success: false, message: "Payment already verified!" });
+    }
+
+    const payment = {
+      sessionId,
+      status,
+      customer_email,
+      payment_status,
+      customer_email,
+      userId: metadata.userId,
+      payment_intent,
+      payment_date: new Date(),
+    };
+
+    const result = await payments.insertOne(payment);
+
+    //      Update user table
+    const updatedDoc = {
+      $set: { plan: "pro" },
+    };
+
+    const updateResult = await user.updateOne(
+      {
+        _id: new ObjectId(metadata.userId),
+      },
+      updatedDoc,
+    );
+
+    res.json({ success: true, result, updateResult });
+
+    return;
+  }
+
+  res.json({
+    success: false,
+    message: "Payment verification failed!",
+  });
 });
 
 // ------------------ Start server

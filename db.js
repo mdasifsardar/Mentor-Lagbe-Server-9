@@ -12,11 +12,13 @@ export async function connectToMongoDB() {
     const user = database.collection("user");
     const tuitions = database.collection("tuitions");
     const applications = database.collection("applications");
+    const payments = database.collection("payments");
 
     return {
       user,
       tuitions,
       applications,
+      payments,
     };
   } catch (err) {
     console.dir(err);
