@@ -3,10 +3,18 @@ import cors from "cors";
 import { connectToMongoDB } from "./db.js";
 import { ObjectId } from "mongodb";
 import Stripe from "stripe";
+import {
+  verifyToken,
+  verifyStudent,
+  verifyTutor,
+  verifyAdmin,
+} from "./middleware/auth.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const app = express();
 const port = process.env.PORT || 5000;
+
+const adminOnly = [verifyToken, verifyAdmin];
 
 app.use(cors());
 app.use(express.json());
@@ -21,7 +29,7 @@ app.get("/", async (req, res) => {
 // ------------------ Tuition data collection
 
 // ------------------ Add tuition
-app.post("/add-tuition", async (req, res) => {
+app.post("/add-tuition", verifyToken, verifyTutor, async (req, res) => {
   try {
     const { tuitions } = await connectToMongoDB();
     const tutionData = req.body;
@@ -174,7 +182,7 @@ app.get("/tuition/:tutorEmail", async (req, res) => {
 });
 
 // ------------------ Update tuition active status by ID
-app.patch("/tuition/:id", async (req, res) => {
+app.patch("/tuition/:id", verifyToken, verifyTutor, async (req, res) => {
   try {
     const { tuitions } = await connectToMongoDB();
     const { id } = req.params;
@@ -201,7 +209,7 @@ app.patch("/tuition/:id", async (req, res) => {
 });
 
 // ------------------ Update tuition data by ID
-app.patch("/update-tuition/:id", async (req, res) => {
+app.patch("/update-tuition/:id", verifyToken, verifyTutor, async (req, res) => {
   try {
     const { tuitions } = await connectToMongoDB();
     const { id } = req.params;
@@ -231,7 +239,7 @@ app.patch("/update-tuition/:id", async (req, res) => {
 });
 
 // ------------------ Delete tuition by ID
-app.delete("/delete-tuition/:id", async (req, res) => {
+app.delete("/delete-tuition/:id", verifyToken, verifyTutor, async (req, res) => {
   try {
     const { tuitions } = await connectToMongoDB();
     const { id } = req.params;
@@ -369,7 +377,7 @@ app.get("/applications/tutor/:email", async (req, res) => {
 });
 
 // ------------------ Apply for tuition
-app.post("/applications", async (req, res) => {
+app.post("/applications", verifyToken, verifyStudent, async (req, res) => {
   try {
     const { applications, tuitions } = await connectToMongoDB();
 
@@ -448,7 +456,7 @@ app.post("/applications", async (req, res) => {
 });
 
 // ------------------ Cancel pending application for student
-app.delete("/applications/:id", async (req, res) => {
+app.delete("/applications/:id", verifyToken, verifyStudent, async (req, res) => {
   try {
     const { applications } = await connectToMongoDB();
 
@@ -493,7 +501,7 @@ app.delete("/applications/:id", async (req, res) => {
 });
 
 // ------------------ Accept/Reject student application for tutor dashboard
-app.patch("/applications/:id", async (req, res) => {
+app.patch("/applications/:id", verifyToken, verifyTutor, async (req, res) => {
   try {
     const { applications } = await connectToMongoDB();
 
@@ -543,9 +551,82 @@ app.patch("/applications/:id", async (req, res) => {
   }
 });
 
+// ------------------ Update logged-in user's own profile
+app.patch("/profile", verifyToken, async (req, res) => {
+  try {
+    if (!ObjectId.isValid(req.user.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user id",
+      });
+    }
+
+    const { user } = await connectToMongoDB();
+    const userId = new ObjectId(req.user.id);
+
+    const currentUser = await user.findOne({ _id: userId });
+
+    if (!currentUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Only these fields can be changed by the user.
+    const updates = {};
+
+    for (const field of ["name", "image", "phone", "bio"]) {
+      if (typeof req.body[field] === "string") {
+        updates[field] = req.body[field].trim();
+      }
+    }
+
+    if (updates.name === "") {
+      return res.status(400).json({
+        success: false,
+        message: "Name cannot be empty",
+      });
+    }
+
+    await user.updateOne(
+      { _id: userId },
+      {
+        $set: {
+          ...updates,
+          updatedAt: new Date(),
+        },
+      },
+    );
+
+    const updatedUser = await user.findOne({ _id: userId });
+
+    return res.status(200).json({
+      success: true,
+      user: {
+        _id: updatedUser._id.toString(),
+        name: updatedUser.name,
+        email: updatedUser.email,
+        image: updatedUser.image || "",
+        role: updatedUser.role || "student",
+        phone: updatedUser.phone || "",
+        bio: updatedUser.bio || "",
+        plan: updatedUser.plan || "free",
+        createdAt: updatedUser.createdAt,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update profile",
+      error: error.message,
+    });
+  }
+});
+
 // ------------------ Admin
 // ------------------ Get overview statistics
-app.get("/admin/stats", async (req, res) => {
+app.get("/admin/stats", ...adminOnly, async (req, res) => {
   try {
     const { user, tuitions, applications } = await connectToMongoDB();
 
@@ -589,8 +670,41 @@ app.get("/admin/stats", async (req, res) => {
   }
 });
 
+// ------------------ Get total revenue from paid payments
+app.get("/admin/revenue", ...adminOnly, async (req, res) => {
+  try {
+    const { payments } = await connectToMongoDB();
+
+    const result = await payments.find({}).toArray();
+
+    let totalRevenue = 0;
+
+    for (const payment of result) {
+      const session = await stripe.checkout.sessions.retrieve(
+        payment.sessionId,
+      );
+
+      if (session.payment_status === "paid") {
+        totalRevenue += Number(session.amount_total || 0) / 100;
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      totalRevenue,
+      totalPayments: result.length,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to calculate revenue",
+      error: error.message,
+    });
+  }
+});
+
 // ------------------ Admin users
-app.get("/admin/users", async (req, res) => {
+app.get("/admin/users", ...adminOnly, async (req, res) => {
   try {
     const { user } = await connectToMongoDB();
     const users = await user
@@ -621,7 +735,7 @@ app.get("/admin/users", async (req, res) => {
 });
 
 // ------------------ Update user role
-app.patch("/admin/users/:id/role", async (req, res) => {
+app.patch("/admin/users/:id/role", ...adminOnly, async (req, res) => {
   try {
     // Validate user ID
     if (!ObjectId.isValid(req.params.id)) {
@@ -666,7 +780,7 @@ app.patch("/admin/users/:id/role", async (req, res) => {
 });
 
 // ------------------ Get all tuitions for admin
-app.get("/admin/tuitions", async (req, res) => {
+app.get("/admin/tuitions", ...adminOnly, async (req, res) => {
   try {
     const { tuitions } = await connectToMongoDB();
     const tuitionsList = await tuitions
@@ -685,7 +799,7 @@ app.get("/admin/tuitions", async (req, res) => {
 });
 
 // ------------------ Update tuition approval status
-app.patch("/admin/tuitions/:id/approval", async (req, res) => {
+app.patch("/admin/tuitions/:id/approval", ...adminOnly, async (req, res) => {
   try {
     // Validate tuition ID
     if (!ObjectId.isValid(req.params.id)) {
@@ -743,18 +857,29 @@ app.patch("/admin/tuitions/:id/approval", async (req, res) => {
 });
 
 // ------------------ Get admin transactions
-app.get("/admin/transactions", async (req, res) => {
+app.get("/admin/transactions", ...adminOnly, async (req, res) => {
   try {
     const { payments } = await connectToMongoDB();
 
-    const transactions = payments
-      ? await payments.find({}).sort({ paidAt: -1 }).toArray()
-      : [];
+    const list = await payments.find({}).sort({ payment_date: -1 }).toArray();
 
-    const totalRevenue = transactions.reduce(
-      (total, t) => total + Number(t.amount || 0),
-      0,
-    );
+    const transactions = [];
+    let totalRevenue = 0;
+
+    for (const payment of list) {
+      const session = await stripe.checkout.sessions.retrieve(
+        payment.sessionId,
+      );
+      const amount = Number(session.amount_total || 0) / 100;
+
+      totalRevenue += amount;
+
+      transactions.push({
+        ...payment,
+        amount,
+        currency: session.currency,
+      });
+    }
 
     return res.status(200).json({
       success: true,
