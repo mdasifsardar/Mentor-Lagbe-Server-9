@@ -239,28 +239,33 @@ app.patch("/update-tuition/:id", verifyToken, verifyTutor, async (req, res) => {
 });
 
 // ------------------ Delete tuition by ID
-app.delete("/delete-tuition/:id", verifyToken, verifyTutor, async (req, res) => {
-  try {
-    const { tuitions } = await connectToMongoDB();
-    const { id } = req.params;
+app.delete(
+  "/delete-tuition/:id",
+  verifyToken,
+  verifyTutor,
+  async (req, res) => {
+    try {
+      const { tuitions } = await connectToMongoDB();
+      const { id } = req.params;
 
-    const result = await tuitions.deleteOne({
-      _id: new ObjectId(id),
-    });
+      const result = await tuitions.deleteOne({
+        _id: new ObjectId(id),
+      });
 
-    return res.status(200).json({
-      success: true,
-      message: "Tuition deleted successfully!",
-      result,
-    });
-  } catch (err) {
-    return res.status(500).json({
-      success: false,
-      message: "Failed to delete tuition!",
-      error: err?.message,
-    });
-  }
-});
+      return res.status(200).json({
+        success: true,
+        message: "Tuition deleted successfully!",
+        result,
+      });
+    } catch (err) {
+      return res.status(500).json({
+        success: false,
+        message: "Failed to delete tuition!",
+        error: err?.message,
+      });
+    }
+  },
+);
 
 // ------------------ Get student dashboard data by email
 app.get("/student-dashboard/:email", async (req, res) => {
@@ -456,49 +461,54 @@ app.post("/applications", verifyToken, verifyStudent, async (req, res) => {
 });
 
 // ------------------ Cancel pending application for student
-app.delete("/applications/:id", verifyToken, verifyStudent, async (req, res) => {
-  try {
-    const { applications } = await connectToMongoDB();
+app.delete(
+  "/applications/:id",
+  verifyToken,
+  verifyStudent,
+  async (req, res) => {
+    try {
+      const { applications } = await connectToMongoDB();
 
-    const id = req.params.id;
+      const id = req.params.id;
 
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).json({
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid application id",
+        });
+      }
+
+      const application = await applications.findOne({ _id: new ObjectId(id) });
+
+      if (!application) {
+        return res.status(404).json({
+          success: false,
+          message: "Application not found",
+        });
+      }
+
+      if (application.status !== "pending") {
+        return res.status(400).json({
+          success: false,
+          message: "Only pending applications can be cancelled",
+        });
+      }
+
+      await applications.deleteOne({ _id: application._id });
+
+      return res.status(200).json({
+        success: true,
+        message: "Application cancelled successfully",
+      });
+    } catch (error) {
+      return res.status(500).json({
         success: false,
-        message: "Invalid application id",
+        message: "Failed to cancel application",
+        error: error.message,
       });
     }
-
-    const application = await applications.findOne({ _id: new ObjectId(id) });
-
-    if (!application) {
-      return res.status(404).json({
-        success: false,
-        message: "Application not found",
-      });
-    }
-
-    if (application.status !== "pending") {
-      return res.status(400).json({
-        success: false,
-        message: "Only pending applications can be cancelled",
-      });
-    }
-
-    await applications.deleteOne({ _id: application._id });
-
-    return res.status(200).json({
-      success: true,
-      message: "Application cancelled successfully",
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Failed to cancel application",
-      error: error.message,
-    });
-  }
-});
+  },
+);
 
 // ------------------ Accept/Reject student application for tutor dashboard
 app.patch("/applications/:id", verifyToken, verifyTutor, async (req, res) => {
@@ -960,3 +970,5 @@ app.post("/payments/checkout-verify", async (req, res) => {
 app.listen(port, () =>
   console.log(`MentorLagbe server running on port ${port}`),
 );
+
+export default app;
